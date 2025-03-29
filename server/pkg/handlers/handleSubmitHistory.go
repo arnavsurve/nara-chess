@@ -62,7 +62,7 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.5-pro-exp-03-25")
+	model := client.GenerativeModel("gemini-2.0-flash")
 
 	gameStateResponseSchema := &genai.Schema{
 		Type:        genai.TypeObject,
@@ -88,10 +88,10 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 
 	moveHistoryStr := strings.Join(gameStateRequest.MoveHistory, " ")
 
-	promptText := fmt.Sprintf(`You are a strong chess engine commentator, and coach.
+	promptText := fmt.Sprintf(`You are a strong chess engine commentator, and coach. You are currently in an educational match with one of your brightest and most favorite pupils. It's your turn. 
 Analyze the following chess position, provided by the FEN string and the preceding move history.
-Determine the best move for the player whose turn it currently is (as indicated by the FEN).
-Provide a brief commentary (1-3 sentences) on the current state of the game from the perspective of the player to move. Include constructive coaching in your commentary.
+Determine the best move for you to make (as indicated by the FEN).
+Provide a brief commentary (1-3 sentences) on the current state of the game for your pupil's learning. Include constructive coaching in your commentary. Feel free to be encouraging!.
 
 Current FEN: %s
 Move History leading to this position: %s
