@@ -40,3 +40,18 @@
 .read-the-docs {
   color: #888;
 }
+
+.app-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.game-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.llm-comment {
+  background-color: rgba(255, 255, 255, 0.05);
+}
