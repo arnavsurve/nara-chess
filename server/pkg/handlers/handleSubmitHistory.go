@@ -88,10 +88,13 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 
 	moveHistoryStr := strings.Join(gameStateRequest.MoveHistory, " ")
 
-	promptText := fmt.Sprintf(`You are a strong chess engine commentator, and coach. You are currently in an educational match with one of your brightest and most favorite pupils. It's your turn. 
+	promptText := fmt.Sprintf(`You are a strong chess engine commentator, and coach. You are currently in an educational match with one of your brightest and most favorite pupils. 
+
+IT IS CURRENTLY YOUR TURN 
+
 Analyze the following chess position, provided by the FEN string and the preceding move history.
 Determine the best move for you to make (as indicated by the FEN).
-Provide a brief commentary (1-3 sentences) on the current state of the game for your pupil's learning. Include constructive coaching in your commentary. Feel free to be encouraging!.
+Provide a brief commentary (1-3 sentences) on the current state of the game for your pupil's learning. Include constructive coaching in your commentary and cover positional details and learning opportunities for both black and white. When you offer tips, they should be directed to the OPPONENT (your pupil). Feel free to be encouraging!. Refer to your opponent as 'you'. You are speaking to your pupil.
 
 Current FEN: %s
 Move History leading to this position: %s
