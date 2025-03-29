@@ -43,6 +43,10 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Request must contain the current board state FEN (fen field)", http.StatusBadRequest)
 		return
 	}
+	var wrongMove string
+	if gameStateRequest.WrongMove != "" {
+		wrongMove = fmt.Sprintf("\n\nHere, %s is an INVALID MOVE. Do not use this in your response.", gameStateRequest.WrongMove)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // 60 second timeout
 	defer cancel()
@@ -66,7 +70,7 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 
 	gameStateResponseSchema := &genai.Schema{
 		Type:        genai.TypeObject,
-		Description: "Response containing commentary on the chess game state and the suggested next best move.",
+		Description: "Response containing commentary on the chess game state and next move.",
 		Properties: map[string]*genai.Schema{
 			"comment": {
 				Type:        genai.TypeString,
@@ -74,7 +78,7 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 			},
 			"move": {
 				Type:        genai.TypeString,
-				Description: "The suggested best next move for the current player in Standard Algebraic Notation (SAN), e.g., 'Nf3', 'O-O', 'e8=Q+'.",
+				Description: "The move you would like to make in Standard Algebraic Notation (SAN), e.g., 'Nf3', 'O-O', 'e8=Q+'.",
 			},
 		},
 		Required: []string{"comment", "move"},
@@ -88,27 +92,45 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 
 	moveHistoryStr := strings.Join(gameStateRequest.MoveHistory, " ")
 
-	promptText := fmt.Sprintf(`You are a strong chess engine commentator, and coach. You are currently in an educational match with one of your brightest and most favorite pupils. 
+	llmSide, pupilSide, err := inferSidesFromFEN(gameStateRequest.Fen)
+	if err != nil {
+		log.Printf("Error parsing FEN for side inference: %v", err)
+		http.Error(w, "Invalid FEN", http.StatusBadRequest)
+	}
 
-IT IS CURRENTLY YOUR TURN 
+	promptText := fmt.Sprintf(`You are a strong chess engine, commentator, and coach playing a friendly educational match against your favorite pupil.
 
-Analyze the following chess position, provided by the FEN string and the preceding move history.
-Determine the best move for you to make (as indicated by the FEN).
-Provide a brief commentary (1-3 sentences) on the current state of the game for your pupil's learning. Include constructive coaching in your commentary and cover positional details and learning opportunities for both black and white. When you offer tips, they should be directed to the OPPONENT (your pupil). Feel free to be encouraging!. Refer to your opponent as 'you'. You are speaking to your pupil.
+You are playing as %s.
+Your pupil is playing as %s.
+The current position is after your pupil just made their move — it is now your turn.
 
-Current FEN: %s
-Move History leading to this position: %s
+Your job is to:
+1. Make the best move for your side (%s) based on the FEN.
+2. Give your pupil (the %s player) coaching and insight on the position.
+3. Explain your move in a way that helps them learn and improve.
 
-Instructions:
-1. Identify the best legal move in this position according to strong chess principles.
-2. Provide a comment evaluating the current situation (e.g., material balance, king safety, activity, space).
-3. Format your response *strictly* as a JSON object matching the provided schema. Only output the JSON object, with no introductory text or explanation before or after it.
-   - The "comment" field should contain your commentary.
-   - The "move" field should contain *only* the suggested best move in Standard Algebraic Notation (SAN). Examples: "e4", "Nf3", "Qxb7", "O-O", "fxg1=Q+".
+Refer to your pupil using second person pronouns ("you", "your").  
+Refer to yourself only in the first person ("I", "my").  
+Never refer to both yourself and your pupil using collective terms like "we", "us", or "our".  
+Do not use inclusive language like "let's", "we're", or "our plan".  
+You are the opponent and coach — your pupil is the one learning by playing against you.  
+Maintain a clear distinction between your actions and your pupil's actions at all times.
 
-JSON object required:`, gameStateRequest.Fen, moveHistoryStr)
+FEN: %s
+Move History: %s
 
-	prompt := genai.Text(promptText)
+Strictly format your response as a JSON object matching this schema:
+{
+  "comment": "...", // A brief 1-3 sentence comment from you to your pupil
+  "move": "..."     // Your move in SAN (e.g., "Nf3", "O-O", "e8=Q+")
+}
+
+
+Do NOT include any explanation or extra text outside the JSON object.
+
+JSON object required:`, llmSide, pupilSide, llmSide, pupilSide, gameStateRequest.Fen, moveHistoryStr)
+
+	prompt := genai.Text(promptText + wrongMove)
 
 	log.Printf("Sending request to Gemini for move suggestion. FEN: %s", gameStateRequest.Fen)
 	resp, err := model.GenerateContent(ctx, prompt)
@@ -166,4 +188,20 @@ JSON object required:`, gameStateRequest.Fen, moveHistoryStr)
 
 func ptrFloat32(f float32) *float32 {
 	return &f
+}
+
+func inferSidesFromFEN(fen string) (llmSide string, pupilSide string, err error) {
+	parts := strings.Split(fen, " ")
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("invalid FEN: not enough parts")
+	}
+	turn := parts[1]
+	switch turn {
+	case "w":
+		return "White", "Black", nil // White to move, so Black was the pupil
+	case "b":
+		return "Black", "White", nil // Black to move, so White was the pupil
+	default:
+		return "", "", fmt.Errorf("invalid FEN turn field: %s", turn)
+	}
 }

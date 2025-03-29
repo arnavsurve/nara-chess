@@ -13,6 +13,7 @@ export default function App() {
   const [game, setGame] = useState(new Chess());
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [llmComment, setLLMComment] = useState<string>("");
+  const [llmWrongMove, setLLMWrongMove] = useState<string>("");
   const [isPlayerTurn, setIsPlayerTurn] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [retryCount, setRetryCount] = useState<number>(0);
@@ -57,6 +58,7 @@ export default function App() {
     } catch (error) {
       console.error(`Error executing LLM move '${llmMoveSan}':`, error);
       setLLMComment(`Error: Could not execute the AI's move (${llmMoveSan}). It's your turn.`);
+      setLLMWrongMove(llmMoveSan);
       setIsPlayerTurn(true);
       return false;
     }
@@ -92,7 +94,8 @@ export default function App() {
 
       const payload = {
         move_history: moveHistory,
-        fen: game.fen()
+        fen: game.fen(),
+        wrong_move: llmWrongMove,
       }
       console.log("sending to api attempt:", attempt, payload);
 
@@ -123,7 +126,6 @@ export default function App() {
         }
       } catch (error) {
         console.error("Error:", error);
-        // Add delay before next retry
         await new Promise(resolve => setTimeout(resolve, 1000));
         makeRequest(attempt + 1);
       }
@@ -132,7 +134,6 @@ export default function App() {
     makeRequest(0);
   }, [moveHistory, game, isPlayerTurn, isLoading, makeLLMMove, hasError]);
 
-  // Modify the retry handler to be simpler
   const handleRetry = () => {
     setHasError(false);
     setIsPlayerTurn(false);
@@ -174,7 +175,7 @@ export default function App() {
           gap: '10px'
         }}>
           <p style={{ margin: 0 }}>
-            {isLoading ? <ClipLoader color="white" /> : llmComment}
+            {isLoading ? <ClipLoader /> : llmComment}
           </p>
           {hasError && !isLoading && (
             <button
