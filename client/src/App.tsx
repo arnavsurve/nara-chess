@@ -226,6 +226,7 @@ export default function App() {
             position={game.fen()}
             onPieceDrop={onDrop}
             autoPromoteToQueen={true}
+            customArrowColor="#76A0E5"
             customArrows={llmArrows}
           />
         </div>
