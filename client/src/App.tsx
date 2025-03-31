@@ -1,24 +1,32 @@
-import { useEffect, useState, useRef, SetStateAction, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Chessboard } from "react-chessboard";
 import { Chess, Move, Square } from "chess.js";
-import { ClipLoader } from "react-spinners";
+import Loader from "./components/atoms/Loader.tsx"
 import "./App.css";
 
-interface LLMResponse {
-  summary: string;
-  move: string;
+interface ChatMessage {
+  content: string;
+  role: 'user' | 'model';
+}
+
+enum Side {
+  White = "white",
+  Black = "black",
 }
 
 export default function App() {
   const [game, setGame] = useState(new Chess());
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
-  const [llmComment, setLLMComment] = useState<string>("");
-  const [llmWrongMove, setLLMWrongMove] = useState<string>("");
   const [isPlayerTurn, setIsPlayerTurn] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [retryCount, setRetryCount] = useState<number>(0);
   const [hasError, setHasError] = useState<boolean>(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [inputValue, setInputValue] = useState<string>("");
+  const [llmArrows, setLLMArrows] = useState<Array<Array<string>>>([]);
+  const [title, setTitle] = useState<string>("");
+  const [userSide, setUserSide] = useState<Side>(Side.White);
   const MAX_RETRIES = 3;
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const makePlayerMove = useCallback((move: Move): boolean => {
     if (!isPlayerTurn || isLoading) return false;
@@ -30,12 +38,13 @@ export default function App() {
         setGame(gameCopy);
         setMoveHistory(prev => [...prev, result.san]);
         setIsPlayerTurn(false);
-        setLLMComment("");
         return true;
       }
     } catch (error) {
       console.warn("Invalid move attempt:", error);
       return false;
+    } finally {
+      setLLMArrows([]);
     }
     return false;
   }, [game, isPlayerTurn, isLoading]);
@@ -51,14 +60,11 @@ export default function App() {
         return true;
       } else {
         console.error(`LLM suggested an illegal move: ${llmMoveSan} in FEN: ${game.fen()}`);
-        setLLMComment(`Error: The AI suggested an illegal move (${llmMoveSan}). It might be confused! It's your turn.`);
         setIsPlayerTurn(true);
         return false;
       }
     } catch (error) {
       console.error(`Error executing LLM move '${llmMoveSan}':`, error);
-      setLLMComment(`Error: Could not execute the AI's move (${llmMoveSan}). It's your turn.`);
-      setLLMWrongMove(llmMoveSan);
       setIsPlayerTurn(true);
       return false;
     }
@@ -69,11 +75,50 @@ export default function App() {
     const move = makePlayerMove({
       from: sourceSquare,
       to: targetSquare,
-    });
+      promotion: 'q' // default to queen promotion
+    } as Move);
 
     // illegal move
     if (!move) return false;
     return true;
+  }
+
+  // Handle chat message
+  async function sendMessage(newMessage: ChatMessage) {
+    const payload = {
+      message_history: [...chatMessages, newMessage],
+      game_state: {
+        move_history: moveHistory,
+        fen: game.fen()
+      },
+      player_side: userSide
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch("http://localhost:42069/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to send data to endpoint");
+      }
+
+      const data = await response.json()
+      setChatMessages(prev => [...prev, {
+        content: data.response,
+        role: 'model'
+      }]);
+      setLLMArrows(data.arrows);
+
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -85,7 +130,6 @@ export default function App() {
     const makeRequest = async (attempt = 0) => {
       if (attempt >= MAX_RETRIES) {
         setHasError(true);
-        setLLMComment("The AI seems confused. Click retry to try again.");
         setIsLoading(false);
         return;
       }
@@ -94,13 +138,12 @@ export default function App() {
 
       const payload = {
         move_history: moveHistory,
-        fen: game.fen(),
-        wrong_move: llmWrongMove,
+        fen: game.fen()
       }
       console.log("sending to api attempt:", attempt, payload);
 
       try {
-        const response = await fetch("http://localhost:42069/submitMove", {
+        const response = await fetch("http://localhost:42069/generateMove", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -114,8 +157,13 @@ export default function App() {
 
         const data = await response.json();
         console.log("Response from server:", data);
-        setLLMComment(data.comment);
+        setChatMessages(prev => [...prev, {
+          content: data.comment,
+          role: 'model'
+        }]);
         const moveSuccess = makeLLMMove(data.move);
+        setLLMArrows(data.arrows);
+        setTitle(data.title);
 
         if (!moveSuccess) {
           // Add delay before next retry
@@ -126,6 +174,7 @@ export default function App() {
         }
       } catch (error) {
         console.error("Error:", error);
+        // Add delay before next retry
         await new Promise(resolve => setTimeout(resolve, 1000));
         makeRequest(attempt + 1);
       }
@@ -134,19 +183,36 @@ export default function App() {
     makeRequest(0);
   }, [moveHistory, game, isPlayerTurn, isLoading, makeLLMMove, hasError]);
 
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatMessages, isLoading]);
+
   const handleRetry = () => {
     setHasError(false);
     setIsPlayerTurn(false);
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputValue.trim()) {
+      const newMessage = {
+        content: inputValue.trim(),
+        role: 'user' as const
+      };
+      setChatMessages(prev => [...prev, newMessage]);
+      setInputValue("");
+      sendMessage(newMessage);
+    }
+  };
+
   return (
     <div className="app-container" style={{
-      width: '800px',
-      margin: '0 auto',
       display: 'flex',
       flexDirection: 'column',
-      gap: '20px'
     }}>
+      <h3>{title}</h3>
       <div style={{
         display: 'flex',
         gap: '20px',
@@ -159,24 +225,48 @@ export default function App() {
             position={game.fen()}
             onPieceDrop={onDrop}
             autoPromoteToQueen={true}
+            customArrows={llmArrows}
           />
         </div>
 
-        <div className="llm-comment" style={{
+        <div className="chat-window" style={{
           width: '300px',
+          height: '370px',
           border: '1px solid #666',
           borderRadius: '8px',
           padding: '16px',
-          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
           gap: '10px'
         }}>
-          <p style={{ margin: 0 }}>
-            {isLoading ? <ClipLoader /> : llmComment}
-          </p>
+          <div
+            ref={chatContainerRef}
+            style={{
+              flexGrow: 1,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <div style={{ minHeight: '100%' }}>
+              {chatMessages.map((msg, index) => (
+                <p key={index} style={{
+                  margin: '8px 0',
+                  borderRadius: '4px',
+                  color: index === chatMessages.length - 1 ? 'inherit' : '#aaa',
+                  textAlign: msg.role === 'user' ? 'right' : 'left',
+                  backgroundColor: msg.role === 'user' ? '#2b5278' : '#383838',
+                  padding: '8px 12px',
+                }}>
+                  {msg.content}
+                </p>
+              ))}
+            </div>
+            <div style={{ justifyContent: "center", alignItems: "center", display: "flex" }}>
+              {isLoading ? <Loader /> : null}
+            </div>
+          </div>
+
           {hasError && !isLoading && (
             <button
               onClick={handleRetry}
@@ -187,12 +277,44 @@ export default function App() {
                 color: 'white',
                 border: 'none',
                 cursor: 'pointer',
-                marginTop: '10px'
               }}
             >
               Retry Move
             </button>
           )}
+
+          <form onSubmit={handleSubmit} style={{
+            display: 'flex',
+            gap: '8px'
+          }}>
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              style={{
+                flex: 1,
+                padding: '8px',
+                borderRadius: '4px',
+                border: '1px solid #666',
+                backgroundColor: '#333',
+                color: 'white'
+              }}
+              placeholder="Ask anything"
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '8px',
+                borderRadius: '4px',
+                backgroundColor: '#4a4a4a',
+                color: 'white',
+                border: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Send
+            </button>
+          </form>
         </div>
       </div>
 
@@ -200,7 +322,7 @@ export default function App() {
         marginTop: '20px',
         textAlign: 'center'
       }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'left' }}>
           {moveHistory.map((move, index) => (
             <span key={index}>
               {index % 2 === 0 ? `${Math.floor(index / 2 + 1)}. ` : ''}{move}{' '}
