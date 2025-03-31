@@ -7,6 +7,24 @@ type GameStateRequest struct {
 }
 
 type GameStateResponse struct {
-	Comment string `json:"comment"`
-	Move    string `json:"move"`
+	Comment string      `json:"comment"`
+	Move    string      `json:"move"`
+	Arrows  [][2]string `json:"arrows"`
+	Title   string      `json:"title"`
+}
+
+type ChatMessage struct {
+	Content string `json:"content"`
+	Role    string `json:"role"`
+}
+
+type ChatMessageRequest struct {
+	MessageHistory []ChatMessage    `json:"message_history"`
+	GameState      GameStateRequest `json:"game_state"`
+	PlayerSide     string           `json:"player_side"`
+}
+
+type ChatMessageResponse struct {
+	Response string      `json:"response"`
+	Arrows   [][2]string `json:"arrows"`
 }
