@@ -145,6 +145,7 @@ In your response:
 
 FEN: %s  
 Move History: %s
+Chat History: %s
 
 Output your response **strictly** as a JSON object matching this schema:
 
@@ -155,8 +156,8 @@ Output your response **strictly** as a JSON object matching this schema:
   "title": "Italian Game, Hectic Endgame, King's Gambit, Unique Opening"
 }
 
-Do NOT include anything outside the JSON object.`, llmSide, pupilSide, llmSide, gameStateRequest.Fen, moveHistoryStr)
-
+Do NOT include anything outside the JSON object.`, llmSide, pupilSide, llmSide, gameStateRequest.Fen, moveHistoryStr, gameStateRequest.ChatHistory)
+	fmt.Println(promptText)
 	prompt := genai.Text(promptText + wrongMove)
 
 	log.Printf("Sending request to Gemini for move suggestion. FEN: %s", gameStateRequest.Fen)

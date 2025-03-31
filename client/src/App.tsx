@@ -138,7 +138,8 @@ export default function App() {
 
       const payload = {
         move_history: moveHistory,
-        fen: game.fen()
+        fen: game.fen(),
+        chat_history: chatMessages
       }
       console.log("sending to api attempt:", attempt, payload);
 

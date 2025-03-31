@@ -1,9 +1,15 @@
 package types
 
+type ChatMessage struct {
+	Content string `json:"content"`
+	Role    string `json:"role"`
+}
+
 type GameStateRequest struct {
-	MoveHistory []string `json:"move_history"`
-	Fen         string   `json:"fen"`
-	WrongMove   string   `json:"wrong_move"`
+	MoveHistory []string      `json:"move_history"`
+	ChatHistory []ChatMessage `json:"chat_history"`
+	Fen         string        `json:"fen"`
+	WrongMove   string        `json:"wrong_move"`
 }
 
 type GameStateResponse struct {
@@ -11,11 +17,6 @@ type GameStateResponse struct {
 	Move    string      `json:"move"`
 	Arrows  [][2]string `json:"arrows"`
 	Title   string      `json:"title"`
-}
-
-type ChatMessage struct {
-	Content string `json:"content"`
-	Role    string `json:"role"`
 }
 
 type ChatMessageRequest struct {
