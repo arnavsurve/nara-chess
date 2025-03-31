@@ -15,8 +15,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/submitMove", func(w http.ResponseWriter, r *http.Request) {
-		handlers.HandleSubmitHistory(w, r)
+	mux.HandleFunc("/generateMove", func(w http.ResponseWriter, r *http.Request) {
+		handlers.HandleGenerateMove(w, r)
+	})
+	mux.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
+		handlers.HandleChatMessage(w, r)
 	})
 
 	muxCORS := CORSMiddleware(mux)
