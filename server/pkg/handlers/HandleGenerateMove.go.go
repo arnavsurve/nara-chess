@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"arnavsurve/nara-chess/server/pkg/types"
+	"arnavsurve/nara-chess/server/pkg/utils"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,7 +17,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
+func HandleGenerateMove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -66,7 +67,7 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	model := client.GenerativeModel("gemini-2.0-flash")
+	model := client.GenerativeModel("gemini-2.5-pro-exp-03-25")
 
 	gameStateResponseSchema := &genai.Schema{
 		Type:        genai.TypeObject,
@@ -80,6 +81,20 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 				Type:        genai.TypeString,
 				Description: "The move you would like to make in Standard Algebraic Notation (SAN), e.g., 'Nf3', 'O-O', 'e8=Q+'.",
 			},
+			"arrows": {
+				Type:        genai.TypeArray,
+				Description: "Optional coaching arrows to display. Each is a tuple of two square strings (from, to). Used to show threats, good ideas, plans, etc.",
+				Items: &genai.Schema{
+					Type: genai.TypeArray,
+					Items: &genai.Schema{
+						Type: genai.TypeString,
+					},
+				},
+			},
+			"title": {
+				Type:        genai.TypeString,
+				Description: "A short phrase to describe the current game.",
+			},
 		},
 		Required: []string{"comment", "move"},
 	}
@@ -87,48 +102,60 @@ func HandleSubmitHistory(w http.ResponseWriter, r *http.Request) {
 	model.GenerationConfig = genai.GenerationConfig{
 		ResponseMIMEType: "application/json",
 		ResponseSchema:   gameStateResponseSchema,
-		Temperature:      ptrFloat32(0.4),
+		Temperature:      utils.PtrFloat32(0.4),
 	}
 
 	moveHistoryStr := strings.Join(gameStateRequest.MoveHistory, " ")
 
-	llmSide, pupilSide, err := inferSidesFromFEN(gameStateRequest.Fen)
+	llmSide, pupilSide, err := utils.InferSidesFromFEN(gameStateRequest.Fen)
 	if err != nil {
 		log.Printf("Error parsing FEN for side inference: %v", err)
 		http.Error(w, "Invalid FEN", http.StatusBadRequest)
 	}
 
-	promptText := fmt.Sprintf(`You are a strong chess engine, commentator, and coach playing a friendly educational match against your favorite pupil.
+	promptText := fmt.Sprintf(`You are a strong chess engine, commentator, and coach in an ongoing educational match against your pupil.
 
-You are playing as %s.
-Your pupil is playing as %s.
-The current position is after your pupil just made their move — it is now your turn.
+You are playing as %s.  
+Your pupil is playing as %s.  
+It is currently your turn to move — your pupil just made the last move.  
 
-Your job is to:
-1. Make the best move for your side (%s) based on the FEN.
-2. Give your pupil (the %s player) coaching and insight on the position.
-3. Explain your move in a way that helps them learn and improve.
+You must:
+1. Select the best next move for your side (%s) using strong chess principles.
+2. Evaluate the position for both sides — from your pupil’s perspective.
+3. Provide insightful, constructive feedback that helps your pupil improve.
 
-Refer to your pupil using second person pronouns ("you", "your").  
-Refer to yourself only in the first person ("I", "my").  
-Never refer to both yourself and your pupil using collective terms like "we", "us", or "our".  
-Do not use inclusive language like "let's", "we're", or "our plan".  
-You are the opponent and coach — your pupil is the one learning by playing against you.  
-Maintain a clear distinction between your actions and your pupil's actions at all times.
+In your response:
+- Identify specific positional features (e.g., weak squares, piece activity, king safety, space, pawn structure).
+- **Explain the ideas behind your move and how it fits into a short-term or long-term plan.**
+- Mention any **good ideas** or **mistakes** your pupil made in their last move or overall game direction.
+- **Offer a brief tactical or strategic concept they could focus on (e.g., "look for pins", "consider open files", "avoid weakening squares like f3").**
+- **Relate their move to classical principles or named openings if appropriate (e.g., “this is common in the Italian Game”)**.
+- Use clear and simple language and talk in a casual tone, minimizing filler language. Be direct in your communication.
+- Think deeply when formulating your response to provide appropriate coaching based on the opponent's estimated skill level and bringing up interesting lines or characteristics of the game state.
 
-FEN: %s
+- If useful, include a list of 1–3 arrows that would help the pupil visualize the plan, threats, or key ideas on the board. ENSURE YOU ELABORATE ON THE MOVES THAT THESE ARROWS DESCRIBE. Only use arrows to help illustrate your description of *future moves*, threats, or key ideas. Do not use arrows without already having described the scenario for that arrow. Do not use an arrow to indicate a move that you or the player has made already or is currently making.
+- Use the format: ["from-square", "to-square"] — for example: ["e4", "e5"] to suggest a pawn push.
+- These arrows are used to help the user *learn*, so show things like threats, weak squares, tactical ideas, or developing moves that may be applicable to either side.
+- DO NOT use arrows unless the game's position ABSOLUTELY NECESSITATES an opportunity for in depth analysis. For textbook positions or early game, DO NOT RETURN ANY ARROWS.
+
+
+**Pronoun usage rules**:
+- Refer to yourself as “I” and to the pupil as “you”.
+- Do **not** use “we”, “us”, or “our”.
+
+FEN: %s  
 Move History: %s
 
-Strictly format your response as a JSON object matching this schema:
+Output your response **strictly** as a JSON object matching this schema:
+
 {
-  "comment": "...", // A brief 1-3 sentence comment from you to your pupil
+  "comment": "...", // Constructive coaching commentary (1–3 sentences)
   "move": "..."     // Your move in SAN (e.g., "Nf3", "O-O", "e8=Q+")
+  "arrows": [["e4", "e5"], ["g1", "f3"]]
+  "title": "Italian Game, Hectic Endgame, King's Gambit, Unique Opening"
 }
 
-
-Do NOT include any explanation or extra text outside the JSON object.
-
-JSON object required:`, llmSide, pupilSide, llmSide, pupilSide, gameStateRequest.Fen, moveHistoryStr)
+Do NOT include anything outside the JSON object.`, llmSide, pupilSide, llmSide, gameStateRequest.Fen, moveHistoryStr)
 
 	prompt := genai.Text(promptText + wrongMove)
 
@@ -170,8 +197,6 @@ JSON object required:`, llmSide, pupilSide, llmSide, pupilSide, gameStateRequest
 
 	if gameStateResponse.Move == "" {
 		log.Printf("Warning: Gemini returned JSON but the 'move' field was empty. Raw: %s", jsonString)
-		// Decide how to handle this - maybe retry, maybe return an error?
-		// For now, we'll let it pass but log it. Could return error:
 		http.Error(w, "Analysis service failed to provide a move", http.StatusInternalServerError)
 		return
 	}
@@ -184,24 +209,4 @@ JSON object required:`, llmSide, pupilSide, llmSide, pupilSide, gameStateRequest
 	}
 
 	log.Printf("Successfully processed request. Suggested move: %s", gameStateResponse.Move)
-}
-
-func ptrFloat32(f float32) *float32 {
-	return &f
-}
-
-func inferSidesFromFEN(fen string) (llmSide string, pupilSide string, err error) {
-	parts := strings.Split(fen, " ")
-	if len(parts) < 2 {
-		return "", "", fmt.Errorf("invalid FEN: not enough parts")
-	}
-	turn := parts[1]
-	switch turn {
-	case "w":
-		return "White", "Black", nil // White to move, so Black was the pupil
-	case "b":
-		return "Black", "White", nil // Black to move, so White was the pupil
-	default:
-		return "", "", fmt.Errorf("invalid FEN turn field: %s", turn)
-	}
 }
