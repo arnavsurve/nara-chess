@@ -4,6 +4,13 @@ import { Chess, Move, Square } from "chess.js";
 import Loader from "./components/atoms/Loader.tsx"
 import "./App.css";
 
+/*
+ * TODO
+ * move history next to chat, clicking a move rolls back game state and jumps to that chat message
+ * - continue conversation from there?
+ * - nested game states? depending on how many tangents / lines you go on with chat
+ */
+
 interface ChatMessage {
   content: string;
   role: 'user' | 'model';
@@ -86,7 +93,7 @@ export default function App() {
   // Handle chat message
   async function sendMessage(newMessage: ChatMessage) {
     const payload = {
-      message_history: [...chatMessages, newMessage],
+      message_history: [...chatMessages, newMessage].slice(-10),
       game_state: {
         move_history: moveHistory,
         fen: game.fen()
@@ -112,7 +119,9 @@ export default function App() {
         content: data.response,
         role: 'model'
       }]);
-      setLLMArrows(data.arrows);
+      if (data.arrows.length) {
+        setLLMArrows(data.arrows);
+      }
 
     } catch (error) {
       console.error(error);
@@ -139,7 +148,7 @@ export default function App() {
       const payload = {
         move_history: moveHistory,
         fen: game.fen(),
-        chat_history: chatMessages
+        chat_history: chatMessages.slice(-5)
       }
       console.log("sending to api attempt:", attempt, payload);
 
@@ -213,125 +222,140 @@ export default function App() {
       display: 'flex',
       flexDirection: 'column',
     }}>
-      <h3>{title}</h3>
       <div style={{
         display: 'flex',
-        gap: '20px',
         justifyContent: 'center'
       }}>
-        <div className="game-section">
-          <Chessboard
-            id="BasicBoard"
-            boardWidth={400}
-            position={game.fen()}
-            onPieceDrop={onDrop}
-            autoPromoteToQueen={true}
-            customArrowColor="#76A0E5"
-            customArrows={llmArrows}
-          />
+        <div className="left-column" style={{ padding: "16px" }}>
+          <h3>{title}</h3>
+          <div className="game-section">
+            <Chessboard
+              id="BasicBoard"
+              boardWidth={400}
+              position={game.fen()}
+              onPieceDrop={onDrop}
+              autoPromoteToQueen={true}
+              customArrowColor="#2b5278"
+              customArrows={llmArrows}
+            />
+          </div>
         </div>
 
-        <div className="chat-window" style={{
-          width: '300px',
-          height: '370px',
-          border: '1px solid #666',
-          borderRadius: '8px',
+        <div className="center-column" style={{
           padding: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px'
+          width: "96px",
+          display: "flex",
+          flexDirection: "column",
         }}>
-          <div
-            ref={chatContainerRef}
-            style={{
-              flexGrow: 1,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            <div style={{ minHeight: '100%' }}>
-              {chatMessages.map((msg, index) => (
-                <p key={index} style={{
-                  margin: '8px 0',
-                  borderRadius: '4px',
-                  color: index === chatMessages.length - 1 ? 'inherit' : '#aaa',
-                  textAlign: msg.role === 'user' ? 'right' : 'left',
-                  backgroundColor: msg.role === 'user' ? '#2b5278' : '#383838',
-                  padding: '8px 12px',
-                }}>
-                  {msg.content}
-                </p>
-              ))}
+          <div className="move-history" style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'left',
+            height: "80%",
+            gap: "4px",
+            alignContent: "flex-start"
+          }}>
+            {Array.from({ length: Math.ceil(moveHistory.length / 2) }).map((_, index) => (
+              <span key={index} style={{ lineHeight: "1.2" }}>
+                {`${index + 1}. ${moveHistory[index * 2]} ${moveHistory[index * 2 + 1] || ''}`}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="right-column">
+          <div className="chat-window" style={{
+            width: '300px',
+            height: '640px',
+            border: '1px solid #666',
+            borderRadius: '8px',
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div
+              ref={chatContainerRef}
+              style={{
+                flexGrow: 1,
+                overflowY: 'auto',
+                display: 'flex',
+                flexDirection: 'column'
+              }}
+            >
+              <div style={{ height: '100%' }}>
+                {chatMessages.map((msg, index) => (
+                  <p key={index} style={{
+                    margin: '8px 0',
+                    borderRadius: '4px',
+                    color: index === chatMessages.length - 1 ? 'inherit' : '#aaa',
+                    textAlign: msg.role === 'user' ? 'right' : 'left',
+                    backgroundColor: msg.role === 'user' ? '#2b5278' : '#383838',
+                    padding: '8px 12px',
+                  }}>
+                    {msg.content}
+                  </p>
+                ))}
+              </div>
             </div>
             <div style={{ justifyContent: "center", alignItems: "center", display: "flex" }}>
               {isLoading ? <Loader /> : null}
             </div>
+
+            {hasError && !isLoading && (
+              <button
+                onClick={handleRetry}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  backgroundColor: '#4a4a4a',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                Retry Move
+              </button>
+            )}
+
+            <form onSubmit={handleSubmit} style={{
+              display: 'flex',
+              gap: '8px'
+            }}>
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: '8px',
+                  borderRadius: '4px',
+                  border: '1px solid #666',
+                  backgroundColor: '#333',
+                  color: 'white'
+                }}
+                placeholder="Ask anything..."
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: '8px',
+                  borderRadius: '4px',
+                  backgroundColor: '#4a4a4a',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Send
+              </button>
+            </form>
+
           </div>
 
-          {hasError && !isLoading && (
-            <button
-              onClick={handleRetry}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '4px',
-                backgroundColor: '#4a4a4a',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              Retry Move
-            </button>
-          )}
-
-          <form onSubmit={handleSubmit} style={{
-            display: 'flex',
-            gap: '8px'
-          }}>
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '8px',
-                borderRadius: '4px',
-                border: '1px solid #666',
-                backgroundColor: '#333',
-                color: 'white'
-              }}
-              placeholder="Ask anything"
-            />
-            <button
-              type="submit"
-              style={{
-                padding: '8px',
-                borderRadius: '4px',
-                backgroundColor: '#4a4a4a',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              Send
-            </button>
-          </form>
         </div>
       </div>
 
-      <div style={{
-        marginTop: '20px',
-        textAlign: 'center'
-      }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'left' }}>
-          {moveHistory.map((move, index) => (
-            <span key={index}>
-              {index % 2 === 0 ? `${Math.floor(index / 2 + 1)}. ` : ''}{move}{' '}
-            </span>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
